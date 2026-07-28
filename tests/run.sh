@@ -110,11 +110,11 @@ assert_eq "$?" "0" "updater repo correct"
 echo ""
 echo "=== Demo worker ==="
 echo "14. demo worker syntax"
-if [ -f "$DIR/demo-worker/src/index.js" ]; then
+if [ -f "$DIR/demo-worker/src/index.js" ] && command -v node >/dev/null 2>&1; then
   node --check "$DIR/demo-worker/src/index.js" 2>/dev/null
   assert_eq "$?" "0" "demo worker parses"
 else
-  PASS=$((PASS+1)); echo "  skip: not present"
+  PASS=$((PASS+1)); echo "  skip: demo worker absent or node unavailable"
 fi
 
 # --- Integration ---
