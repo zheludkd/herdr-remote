@@ -68,6 +68,11 @@ grep -q 'HERDR_TG_ALLOW_TRUST' "$DIR/relay/herdr_telegram.py" &&
   grep -q 'if not TRUST_ENABLED' "$DIR/relay/herdr_telegram.py"
 assert_eq "$?" "0" "persistent trust control present"
 
+echo "7c. telegram handlers support channel posts"
+! grep -q 'update\.message' "$DIR/relay/herdr_telegram.py" &&
+  grep -q 'update\.effective_message' "$DIR/relay/herdr_telegram.py"
+assert_eq "$?" "0" "handlers use effective_message"
+
 # --- TUI ---
 echo ""
 echo "=== TUI ==="
