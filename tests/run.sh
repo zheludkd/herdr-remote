@@ -63,6 +63,11 @@ grep -q '"keys": \["C-c"\]' "$DIR/relay/herdr_telegram.py" &&
   ! grep -q '"keys": \["Ctrl+c"\]' "$DIR/relay/herdr_telegram.py"
 assert_eq "$?" "0" "interrupt uses C-c"
 
+echo "7b. telegram persistent trust can be disabled"
+grep -q 'HERDR_TG_ALLOW_TRUST' "$DIR/relay/herdr_telegram.py" &&
+  grep -q 'if not TRUST_ENABLED' "$DIR/relay/herdr_telegram.py"
+assert_eq "$?" "0" "persistent trust control present"
+
 # --- TUI ---
 echo ""
 echo "=== TUI ==="

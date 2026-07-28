@@ -116,13 +116,16 @@ server is a named session:
 export HERDR_RELAY_BIND="127.0.0.1"
 export HERDR_SESSION="agents"
 export HERDR_MDNS="0"
+export HERDR_TG_ALLOW_TRUST="0"
 uv run relay/herdr_relay.py
 ```
 
 The Telegram bot can then use its default relay URL,
 `ws://127.0.0.1:8375`. No Cloudflare tunnel or `herdr-push` plugin is required
 for the relay's normal polling path. A Python 3.13 dependency lock for this
-deployment is available at `relay/requirements-vps.lock`.
+deployment is available at `relay/requirements-vps.lock`. Setting
+`HERDR_TG_ALLOW_TRUST=0` removes the persistent-trust button and makes `/trust`
+refuse; one-time approval buttons remain available.
 
 ## Requirements
 

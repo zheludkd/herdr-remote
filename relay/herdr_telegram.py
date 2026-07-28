@@ -19,6 +19,7 @@ CHAT_ID = os.environ.get("HERDR_TG_CHAT_ID", "")
 RELAY_WS = os.environ.get("HERDR_RELAY", "ws://127.0.0.1:8375")
 RELAY_WS_SAFE = RELAY_WS.split("?", 1)[0]  # token-free variant for display and logging; never leak the token
 _RELAY_TOKEN = RELAY_WS.split("token=", 1)[1] if "token=" in RELAY_WS else ""
+TRUST_ENABLED = os.environ.get("HERDR_TG_ALLOW_TRUST", "1").lower() not in {"0", "false", "no", "off"}
 
 
 def scrub(value) -> str:
@@ -100,6 +101,7 @@ def authorized(update: Update) -> bool:
 
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Handle /start command."""
+    trust_command = "/trust — trust all tools for a blocked agent\n" if TRUST_ENABLED else ""
     await update.message.reply_text(
         "herdr-remote bot\n\n"
         "Commands:\n"
@@ -107,7 +109,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "/status — relay connection info\n"
         "/read — read last output from an agent\n"
         "/send — send text to an agent\n"
-        "/trust — trust all tools for a blocked agent\n"
+        f"{trust_command}"
         "/interrupt — send Ctrl+C to an agent\n\n"
         "Pick an agent from the menu, then type — no reply needed.\n"
         "You'll get notified when agents block or finish.\n\n"
@@ -292,6 +294,10 @@ async def cmd_reply(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_trust(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Handle /trust [project] — send 'trust, always allow' to a blocked agent."""
+    if not TRUST_ENABLED:
+        await update.message.reply_text("Persistent trust is disabled by HERDR_TG_ALLOW_TRUST.")
+        return
+
     args = ctx.args
     blocked = [a for a in agents if a.get("status") == "blocked"]
 
@@ -383,6 +389,9 @@ async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     if action == "trust":
+        if not TRUST_ENABLED:
+            await query.message.reply_text("Persistent trust is disabled.")
+            return
         await send_to_relay(data["pane_id"], "trust, always allow")
         agent_name = next((a['project'] for a in agents if a['pane_id'] == data['pane_id']), '?')
         await query.message.reply_text(f"Trusted {agent_name} (always allow)")
@@ -445,25 +454,30 @@ async def handle_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 # --- Blocked notification ---
 
 TOOL_BUTTONS = [
-    ("Yes (once)", "yes, single permission"),
-    ("Trust (always)", "trust, always allow"),
-    ("No", "no (tab to edit)"),
+    ("Yes (once)", "1"),
+    ("Trust (always)", "2"),
+    ("No", "3"),
 ]
 
 SUBAGENT_BUTTONS = [
-    ("Approve all", "approve all pending"),
-    ("Configure", "configure individually"),
-    ("Cancel", "exit (cancel subagents)"),
+    ("Approve all", "1"),
+    ("Configure", "2"),
+    ("Cancel", "3"),
 ]
 
 
 def make_keyboard(pane_id: str, options: list[str] | None) -> InlineKeyboardMarkup:
     if options and "trust" in " ".join(options).lower():
         buttons = TOOL_BUTTONS
+        if not TRUST_ENABLED:
+            buttons = [button for button in buttons if button[1] != "2"]
     elif options and "approve all" in " ".join(options).lower():
         buttons = SUBAGENT_BUTTONS
     else:
-        buttons = [(opt.split(",")[0], opt) for opt in (options or ["yes, single permission", "no (tab to edit)"])]
+        buttons = [
+            (opt.split(",")[0], str(i + 1))
+            for i, opt in enumerate(options or ["yes, single permission", "no (tab to edit)"])
+        ]
 
     # Encode the option's 1-based position as "k"; the callback presses that number
     # key on the agent's prompt. Sending the option *text* does not work (see handle_callback).
@@ -472,8 +486,8 @@ def make_keyboard(pane_id: str, options: list[str] | None) -> InlineKeyboardMark
     # keyboard on press (see handle_callback).
     keyboard = [
         [InlineKeyboardButton(label, callback_data=json.dumps(
-            {"pane_id": pane_id, "k": str(i + 1)}, separators=(",", ":")))]
-        for i, (label, _resp) in enumerate(buttons)
+            {"pane_id": pane_id, "k": key}, separators=(",", ":")))]
+        for label, key in buttons
     ]
     return InlineKeyboardMarkup(keyboard)
 
