@@ -32,6 +32,11 @@ grep -q 'HERDR_RELAY_BIND' "$DIR/relay/herdr_relay.py" &&
   grep -q 'herdr_args.extend(\["--session", HERDR_SESSION\])' "$DIR/relay/herdr_relay.py"
 assert_eq "$?" "0" "relay bind/session env vars present"
 
+echo "3b. VPS dependencies are locked"
+grep -q '^python-telegram-bot==' "$DIR/relay/requirements-vps.lock" &&
+  grep -q '^websockets==' "$DIR/relay/requirements-vps.lock"
+assert_eq "$?" "0" "VPS dependency lock present"
+
 # --- Telegram ---
 echo ""
 echo "=== Telegram bot ==="

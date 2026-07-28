@@ -121,7 +121,8 @@ uv run relay/herdr_relay.py
 
 The Telegram bot can then use its default relay URL,
 `ws://127.0.0.1:8375`. No Cloudflare tunnel or `herdr-push` plugin is required
-for the relay's normal polling path.
+for the relay's normal polling path. A Python 3.13 dependency lock for this
+deployment is available at `relay/requirements-vps.lock`.
 
 ## Requirements
 
