@@ -25,6 +25,23 @@ echo "3. start.sh executable"
 [ -x "$DIR/relay/start.sh" ]
 assert_eq "$?" "0" "start.sh +x"
 
+echo "3a. relay supports loopback bind and named sessions"
+grep -q 'HERDR_RELAY_BIND' "$DIR/relay/herdr_relay.py" &&
+  grep -q 'HERDR_SESSION' "$DIR/relay/herdr_relay.py" &&
+  grep -q 'HERDR_MDNS' "$DIR/relay/herdr_relay.py" &&
+  grep -q 'herdr_args.extend(\["--session", HERDR_SESSION\])' "$DIR/relay/herdr_relay.py"
+assert_eq "$?" "0" "relay bind/session env vars present"
+
+echo "3b. VPS dependencies are locked"
+grep -q '^python-telegram-bot==' "$DIR/relay/requirements-vps.lock" &&
+  grep -q '^websockets==' "$DIR/relay/requirements-vps.lock"
+assert_eq "$?" "0" "VPS dependency lock present"
+
+echo "3c. hardened relay can require its auth token"
+grep -q 'HERDR_RELAY_REQUIRE_TOKEN' "$DIR/relay/herdr_relay.py" &&
+  grep -q 'HERDR_RELAY_TOKEN is required' "$DIR/relay/herdr_relay.py"
+assert_eq "$?" "0" "relay fail-closed token control present"
+
 # --- Telegram ---
 echo ""
 echo "=== Telegram bot ==="
@@ -45,6 +62,26 @@ PASS=$((PASS+1)); echo "  pass: all 8 commands present"
 echo "7. telegram bot env vars documented"
 grep -q "HERDR_TG_TOKEN" "$DIR/relay/herdr_telegram.py" && grep -q "HERDR_TG_CHAT_ID" "$DIR/relay/herdr_telegram.py"
 assert_eq "$?" "0" "env vars referenced"
+
+echo "7a. telegram interrupt uses a relay-allowed key"
+grep -q '"keys": \["C-c"\]' "$DIR/relay/herdr_telegram.py" &&
+  ! grep -q '"keys": \["Ctrl+c"\]' "$DIR/relay/herdr_telegram.py"
+assert_eq "$?" "0" "interrupt uses C-c"
+
+echo "7b. telegram persistent trust can be disabled"
+grep -q 'HERDR_TG_ALLOW_TRUST' "$DIR/relay/herdr_telegram.py" &&
+  grep -q 'if not TRUST_ENABLED' "$DIR/relay/herdr_telegram.py"
+assert_eq "$?" "0" "persistent trust control present"
+
+echo "7c. telegram handlers support channel posts"
+! grep -q 'update\.message' "$DIR/relay/herdr_telegram.py" &&
+  grep -q 'update\.effective_message' "$DIR/relay/herdr_telegram.py"
+assert_eq "$?" "0" "handlers use effective_message"
+
+echo "7d. hardened Telegram service can require its chat allowlist"
+grep -q 'HERDR_TG_REQUIRE_CHAT_ID' "$DIR/relay/herdr_telegram.py" &&
+  grep -q 'HERDR_TG_CHAT_ID is required' "$DIR/relay/herdr_telegram.py"
+assert_eq "$?" "0" "Telegram fail-closed chat control present"
 
 # --- TUI ---
 echo ""
@@ -88,11 +125,11 @@ assert_eq "$?" "0" "updater repo correct"
 echo ""
 echo "=== Demo worker ==="
 echo "14. demo worker syntax"
-if [ -f "$DIR/demo-worker/src/index.js" ]; then
+if [ -f "$DIR/demo-worker/src/index.js" ] && command -v node >/dev/null 2>&1; then
   node --check "$DIR/demo-worker/src/index.js" 2>/dev/null
   assert_eq "$?" "0" "demo worker parses"
 else
-  PASS=$((PASS+1)); echo "  skip: not present"
+  PASS=$((PASS+1)); echo "  skip: demo worker absent or node unavailable"
 fi
 
 # --- Integration ---

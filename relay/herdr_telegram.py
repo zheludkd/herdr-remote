@@ -16,9 +16,11 @@ log = logging.getLogger("herdr-tg")
 
 TOKEN = os.environ.get("HERDR_TG_TOKEN", "")
 CHAT_ID = os.environ.get("HERDR_TG_CHAT_ID", "")
+CHAT_ID_REQUIRED = os.environ.get("HERDR_TG_REQUIRE_CHAT_ID", "0").lower() in {"1", "true", "yes", "on"}
 RELAY_WS = os.environ.get("HERDR_RELAY", "ws://127.0.0.1:8375")
 RELAY_WS_SAFE = RELAY_WS.split("?", 1)[0]  # token-free variant for display and logging; never leak the token
 _RELAY_TOKEN = RELAY_WS.split("token=", 1)[1] if "token=" in RELAY_WS else ""
+TRUST_ENABLED = os.environ.get("HERDR_TG_ALLOW_TRUST", "1").lower() not in {"0", "false", "no", "off"}
 
 
 def scrub(value) -> str:
@@ -100,14 +102,15 @@ def authorized(update: Update) -> bool:
 
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Handle /start command."""
-    await update.message.reply_text(
+    trust_command = "/trust — trust all tools for a blocked agent\n" if TRUST_ENABLED else ""
+    await update.effective_message.reply_text(
         "herdr-remote bot\n\n"
         "Commands:\n"
         "/agents — list all agents\n"
         "/status — relay connection info\n"
         "/read — read last output from an agent\n"
         "/send — send text to an agent\n"
-        "/trust — trust all tools for a blocked agent\n"
+        f"{trust_command}"
         "/interrupt — send Ctrl+C to an agent\n\n"
         "Pick an agent from the menu, then type — no reply needed.\n"
         "You'll get notified when agents block or finish.\n\n"
@@ -118,7 +121,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def cmd_agents(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Handle /agents — list current agents with status."""
     if not agents:
-        await update.message.reply_text("No agents connected." if relay_connected else "Not connected to relay.")
+        await update.effective_message.reply_text("No agents connected." if relay_connected else "Not connected to relay.")
         return
 
     blocked = [a for a in agents if a.get("status") == "blocked"]
@@ -142,7 +145,7 @@ async def cmd_agents(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             host = f" @{a['host']}" if a.get('host', 'local') != 'local' else ''
             lines.append(f"  {a['project']} ({a['agent']}){host}")
 
-    await update.message.reply_text("\n".join(lines))
+    await update.effective_message.reply_text("\n".join(lines))
 
 
 async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -157,7 +160,7 @@ async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"Status: {status}\n"
         f"Agents: {len(agents)} ({b} blocked, {w} working, {i} idle)"
     )
-    await update.message.reply_text(text)
+    await update.effective_message.reply_text(text)
 
 
 async def cmd_read(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -166,26 +169,26 @@ async def cmd_read(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not args:
         # Show agent picker
         if not agents:
-            await update.message.reply_text("No agents. Use /agents to check.")
+            await update.effective_message.reply_text("No agents. Use /agents to check.")
             return
         keyboard = [[InlineKeyboardButton(
             f"{a['project']} ({a['agent']})",
             callback_data=json.dumps({"action": "read", "pane_id": a["pane_id"]})
         )] for a in agents[:8]]
-        await update.message.reply_text("Read which agent?", reply_markup=InlineKeyboardMarkup(keyboard))
+        await update.effective_message.reply_text("Read which agent?", reply_markup=InlineKeyboardMarkup(keyboard))
         return
 
     # Find agent by project name
     query = " ".join(args).lower()
     match = next((a for a in agents if query in a.get("project", "").lower() or query in a.get("agent", "").lower()), None)
     if not match:
-        await update.message.reply_text(f"No agent matching '{query}'. Use /agents to see list.")
+        await update.effective_message.reply_text(f"No agent matching '{query}'. Use /agents to see list.")
         return
 
     content = await read_pane(match["pane_id"])
     if len(content) > 3500:
         content = content[-3500:]
-    msg = await update.message.reply_text(f"{match['project']}:\n\n{content}")
+    msg = await update.effective_message.reply_text(f"{match['project']}:\n\n{content}")
     # Store pane_id so user can reply to this message to send text
     pending[msg.message_id] = match["pane_id"]
 
@@ -195,32 +198,32 @@ async def cmd_interrupt(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     args = ctx.args
     if not args:
         if not agents:
-            await update.message.reply_text("No agents.")
+            await update.effective_message.reply_text("No agents.")
             return
         working = [a for a in agents if a.get("status") in ("working", "blocked")]
         if not working:
-            await update.message.reply_text("No active agents to interrupt.")
+            await update.effective_message.reply_text("No active agents to interrupt.")
             return
         keyboard = [[InlineKeyboardButton(
             f"{a['project']} ({a['agent']})",
             callback_data=json.dumps({"action": "interrupt", "pane_id": a["pane_id"]})
         )] for a in working[:8]]
-        await update.message.reply_text("Interrupt which agent?", reply_markup=InlineKeyboardMarkup(keyboard))
+        await update.effective_message.reply_text("Interrupt which agent?", reply_markup=InlineKeyboardMarkup(keyboard))
         return
 
     query = " ".join(args).lower()
     match = next((a for a in agents if query in a.get("project", "").lower() or query in a.get("agent", "").lower()), None)
     if not match:
-        await update.message.reply_text(f"No agent matching '{query}'.")
+        await update.effective_message.reply_text(f"No agent matching '{query}'.")
         return
 
     import websockets
     try:
         async with websockets.connect(RELAY_WS) as ws:
-            await ws.send(json.dumps({"type": "send_keys", "pane_id": match["pane_id"], "keys": ["Ctrl+c"]}))
-        await update.message.reply_text(f"Sent Ctrl+C to {match['project']}")
+            await ws.send(json.dumps({"type": "send_keys", "pane_id": match["pane_id"], "keys": ["C-c"]}))
+        await update.effective_message.reply_text(f"Sent Ctrl+C to {match['project']}")
     except Exception as e:
-        await update.message.reply_text(f"Failed: {scrub(e)}")
+        await update.effective_message.reply_text(f"Failed: {scrub(e)}")
 
 
 async def cmd_send(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -228,24 +231,24 @@ async def cmd_send(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     args = ctx.args
     if not args:
         if not agents:
-            await update.message.reply_text("No agents.")
+            await update.effective_message.reply_text("No agents.")
             return
         keyboard = [[InlineKeyboardButton(
             f"{a['project']} ({a['agent']})",
             callback_data=json.dumps({"action": "select_send", "pane_id": a["pane_id"]})
         )] for a in agents[:8]]
-        await update.message.reply_text("Send to which agent?\n(After selecting, reply with your text)", reply_markup=InlineKeyboardMarkup(keyboard))
+        await update.effective_message.reply_text("Send to which agent?\n(After selecting, reply with your text)", reply_markup=InlineKeyboardMarkup(keyboard))
         return
 
     query = args[0].lower()
     match = next((a for a in agents if query in a.get("project", "").lower() or query in a.get("agent", "").lower()), None)
     if not match:
-        await update.message.reply_text(f"No agent matching '{query}'. Use /agents to see list.")
+        await update.effective_message.reply_text(f"No agent matching '{query}'. Use /agents to see list.")
         return
 
     text = " ".join(args[1:])
     if not text:
-        msg = await update.message.reply_text(f"Selected {match['project']}. Reply to this message with text to send.")
+        msg = await update.effective_message.reply_text(f"Selected {match['project']}. Reply to this message with text to send.")
         pending[msg.message_id] = match["pane_id"]
         return
 
@@ -254,9 +257,9 @@ async def cmd_send(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         async with websockets.connect(RELAY_WS) as ws:
             await ws.send(json.dumps({"type": "send_text", "pane_id": match["pane_id"], "text": text}))
             await ws.send(json.dumps({"type": "send_keys", "pane_id": match["pane_id"], "keys": ["Enter"]}))
-        await update.message.reply_text(f"Sent to {match['project']}: {text}")
+        await update.effective_message.reply_text(f"Sent to {match['project']}: {text}")
     except Exception as e:
-        await update.message.reply_text(f"Failed: {scrub(e)}")
+        await update.effective_message.reply_text(f"Failed: {scrub(e)}")
 
 
 async def cmd_reply(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -265,7 +268,7 @@ async def cmd_reply(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     args = ctx.args
 
     if not agents:
-        await update.message.reply_text("No agents.")
+        await update.effective_message.reply_text("No agents.")
         return
 
     if not args:
@@ -273,13 +276,13 @@ async def cmd_reply(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             f"{a['project']} ({a['agent']})",
             callback_data=json.dumps({"action": "select_reply", "pane_id": a["pane_id"]})
         )] for a in agents[:8]]
-        await update.message.reply_text("Reply to which agent?", reply_markup=InlineKeyboardMarkup(keyboard))
+        await update.effective_message.reply_text("Reply to which agent?", reply_markup=InlineKeyboardMarkup(keyboard))
         return
 
     query = " ".join(args).lower()
     match = next((a for a in agents if query in a.get("project", "").lower() or query in a.get("agent", "").lower()), None)
     if not match:
-        await update.message.reply_text(f"No agent matching '{query}'.")
+        await update.effective_message.reply_text(f"No agent matching '{query}'.")
         return
 
     # Show output then set send target
@@ -287,16 +290,20 @@ async def cmd_reply(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if len(content) > 3000:
         content = content[-3000:]
     send_target = match["pane_id"]
-    await update.message.reply_text(f"{match['project']}:\n\n{content}\n\n--- Type your response below ---")
+    await update.effective_message.reply_text(f"{match['project']}:\n\n{content}\n\n--- Type your response below ---")
 
 
 async def cmd_trust(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Handle /trust [project] — send 'trust, always allow' to a blocked agent."""
+    if not TRUST_ENABLED:
+        await update.effective_message.reply_text("Persistent trust is disabled by HERDR_TG_ALLOW_TRUST.")
+        return
+
     args = ctx.args
     blocked = [a for a in agents if a.get("status") == "blocked"]
 
     if not blocked:
-        await update.message.reply_text("No blocked agents.")
+        await update.effective_message.reply_text("No blocked agents.")
         return
 
     if not args:
@@ -304,23 +311,23 @@ async def cmd_trust(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             f"{a['project']} ({a['agent']})",
             callback_data=json.dumps({"action": "trust", "pane_id": a["pane_id"]})
         )] for a in blocked[:8]]
-        await update.message.reply_text("Trust which agent?", reply_markup=InlineKeyboardMarkup(keyboard))
+        await update.effective_message.reply_text("Trust which agent?", reply_markup=InlineKeyboardMarkup(keyboard))
         return
 
     query = " ".join(args).lower()
     match = next((a for a in blocked if query in a.get("project", "").lower() or query in a.get("agent", "").lower()), None)
     if not match:
-        await update.message.reply_text(f"No blocked agent matching '{query}'.")
+        await update.effective_message.reply_text(f"No blocked agent matching '{query}'.")
         return
 
     await send_to_relay(match["pane_id"], "trust, always allow")
-    await update.message.reply_text(f"Trusted {match['project']} (always allow)")
+    await update.effective_message.reply_text(f"Trusted {match['project']} (always allow)")
 
 
 async def cmd_digest(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Handle /digest — show today's agent activity summary."""
     if not daily_stats:
-        await update.message.reply_text("No activity recorded yet today.")
+        await update.effective_message.reply_text("No activity recorded yet today.")
         return
 
     import time
@@ -332,7 +339,7 @@ async def cmd_digest(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         time_str = f"{mins}m" if mins < 60 else f"{mins//60}h{mins%60}m"
         lines.append(f"  {s['project']} ({s['agent']}): {time_str} working{blocked}")
 
-    await update.message.reply_text("\n".join(lines))
+    await update.effective_message.reply_text("\n".join(lines))
 
 
 # --- Callback handler (buttons) ---
@@ -360,7 +367,7 @@ async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         import websockets
         try:
             async with websockets.connect(RELAY_WS) as ws:
-                await ws.send(json.dumps({"type": "send_keys", "pane_id": data["pane_id"], "keys": ["Ctrl+c"]}))
+                await ws.send(json.dumps({"type": "send_keys", "pane_id": data["pane_id"], "keys": ["C-c"]}))
             await query.message.reply_text("Sent Ctrl+C")
         except Exception as e:
             await query.message.reply_text(f"Failed: {scrub(e)}")
@@ -383,6 +390,9 @@ async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     if action == "trust":
+        if not TRUST_ENABLED:
+            await query.message.reply_text("Persistent trust is disabled.")
+            return
         await send_to_relay(data["pane_id"], "trust, always allow")
         agent_name = next((a['project'] for a in agents if a['pane_id'] == data['pane_id']), '?')
         await query.message.reply_text(f"Trusted {agent_name} (always allow)")
@@ -425,8 +435,8 @@ async def handle_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if send_target:
         pane_id = send_target
         send_target = ""  # one-shot
-    elif update.message.reply_to_message:
-        orig_id = update.message.reply_to_message.message_id
+    elif update.effective_message.reply_to_message:
+        orig_id = update.effective_message.reply_to_message.message_id
         pane_id = pending.get(orig_id)
     
     if not pane_id:
@@ -435,35 +445,40 @@ async def handle_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     import websockets
     try:
         async with websockets.connect(RELAY_WS) as ws:
-            await ws.send(json.dumps({"type": "send_text", "pane_id": pane_id, "text": update.message.text}))
+            await ws.send(json.dumps({"type": "send_text", "pane_id": pane_id, "text": update.effective_message.text}))
             await ws.send(json.dumps({"type": "send_keys", "pane_id": pane_id, "keys": ["Enter"]}))
-        await update.message.reply_text("Sent")
+        await update.effective_message.reply_text("Sent")
     except Exception as e:
-        await update.message.reply_text(f"Failed: {scrub(e)}")
+        await update.effective_message.reply_text(f"Failed: {scrub(e)}")
 
 
 # --- Blocked notification ---
 
 TOOL_BUTTONS = [
-    ("Yes (once)", "yes, single permission"),
-    ("Trust (always)", "trust, always allow"),
-    ("No", "no (tab to edit)"),
+    ("Yes (once)", "1"),
+    ("Trust (always)", "2"),
+    ("No", "3"),
 ]
 
 SUBAGENT_BUTTONS = [
-    ("Approve all", "approve all pending"),
-    ("Configure", "configure individually"),
-    ("Cancel", "exit (cancel subagents)"),
+    ("Approve all", "1"),
+    ("Configure", "2"),
+    ("Cancel", "3"),
 ]
 
 
 def make_keyboard(pane_id: str, options: list[str] | None) -> InlineKeyboardMarkup:
     if options and "trust" in " ".join(options).lower():
         buttons = TOOL_BUTTONS
+        if not TRUST_ENABLED:
+            buttons = [button for button in buttons if button[1] != "2"]
     elif options and "approve all" in " ".join(options).lower():
         buttons = SUBAGENT_BUTTONS
     else:
-        buttons = [(opt.split(",")[0], opt) for opt in (options or ["yes, single permission", "no (tab to edit)"])]
+        buttons = [
+            (opt.split(",")[0], str(i + 1))
+            for i, opt in enumerate(options or ["yes, single permission", "no (tab to edit)"])
+        ]
 
     # Encode the option's 1-based position as "k"; the callback presses that number
     # key on the agent's prompt. Sending the option *text* does not work (see handle_callback).
@@ -472,8 +487,8 @@ def make_keyboard(pane_id: str, options: list[str] | None) -> InlineKeyboardMark
     # keyboard on press (see handle_callback).
     keyboard = [
         [InlineKeyboardButton(label, callback_data=json.dumps(
-            {"pane_id": pane_id, "k": str(i + 1)}, separators=(",", ":")))]
-        for i, (label, _resp) in enumerate(buttons)
+            {"pane_id": pane_id, "k": key}, separators=(",", ":")))]
+        for label, key in buttons
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -553,13 +568,15 @@ async def relay_listener(app: Application):
                         )
         except Exception as e:
             relay_connected = False
-            log.warning(f"Relay connection lost: {e}, reconnecting in 5s...")
+            log.warning(f"Relay connection lost: {scrub(e)}, reconnecting in 5s...")
             await asyncio.sleep(5)
 
 
 # --- Main ---
 
 def main():
+    if CHAT_ID_REQUIRED and not CHAT_ID:
+        raise SystemExit("HERDR_TG_CHAT_ID is required by HERDR_TG_REQUIRE_CHAT_ID")
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", cmd_start))
     if CHAT_ID:

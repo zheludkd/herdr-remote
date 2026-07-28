@@ -41,8 +41,12 @@ logging.getLogger("websockets").setLevel(logging.WARNING)
 
 HERDR = os.environ.get("HERDR_BIN") or shutil.which("herdr") or "/opt/homebrew/bin/herdr"
 WS_PORT = int(os.environ.get("HERDR_RELAY_PORT", "8375"))
+WS_BIND = os.environ.get("HERDR_RELAY_BIND", "0.0.0.0")
+HERDR_SESSION = os.environ.get("HERDR_SESSION", "").strip()
+MDNS_ENABLED = os.environ.get("HERDR_MDNS", "1").lower() not in {"0", "false", "no", "off"}
 POLL_INTERVAL = 2
 AUTH_TOKEN = os.environ.get("HERDR_RELAY_TOKEN", "")  # Optional: shared secret for relay auth
+AUTH_TOKEN_REQUIRED = os.environ.get("HERDR_RELAY_REQUIRE_TOKEN", "0").lower() in {"1", "true", "yes", "on"}
 
 # VAPID Web Push
 VAPID_PUBLIC_KEY = os.environ.get("HERDR_VAPID_PUBLIC", "")
@@ -155,10 +159,13 @@ _load_push_subs()
 
 def run_herdr(*args, remote=None):
     try:
+        herdr_args = [HERDR]
+        if HERDR_SESSION:
+            herdr_args.extend(["--session", HERDR_SESSION])
         if remote:
-            cmd = ["ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes", remote, HERDR, *args]
+            cmd = ["ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes", remote, *herdr_args, *args]
         else:
-            cmd = [HERDR, *args]
+            cmd = [*herdr_args, *args]
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
         return r.stdout.strip()
     except Exception:
@@ -534,6 +541,9 @@ class UDPPlugin(asyncio.DatagramProtocol):
 
 
 def start_mdns():
+    if not MDNS_ENABLED:
+        log.info("mDNS disabled")
+        return None, None
     try:
         from zeroconf import Zeroconf, ServiceInfo
         import socket as sock_mod
@@ -553,6 +563,8 @@ def start_mdns():
 
 
 async def main():
+    if AUTH_TOKEN_REQUIRED and not AUTH_TOKEN:
+        raise SystemExit("HERDR_RELAY_TOKEN is required by HERDR_RELAY_REQUIRE_TOKEN")
     zc, info = start_mdns()
     loop = asyncio.get_running_loop()
     try:
@@ -561,9 +573,11 @@ async def main():
         log.warning("UDP 8376 in use, plugin push disabled")
     asyncio.create_task(poll_loop())
     asyncio.create_task(event_push())
-    server = await serve(handle_client, "0.0.0.0", WS_PORT, process_request=process_request)
+    server = await serve(handle_client, WS_BIND, WS_PORT, process_request=process_request)
     hosts = ["local"] + REMOTES
-    log.info("herdr-remote relay on :%d (WebSocket + HTTP POST)", WS_PORT)
+    log.info("herdr-remote relay on %s:%d (WebSocket + HTTP POST)", WS_BIND, WS_PORT)
+    if HERDR_SESSION:
+        log.info("Herdr named session: %s", HERDR_SESSION)
     log.info("Polling: %s", ", ".join(hosts))
     stop = loop.create_future()
     for sig in (signal.SIGINT, signal.SIGTERM):
