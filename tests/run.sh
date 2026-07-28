@@ -37,6 +37,11 @@ grep -q '^python-telegram-bot==' "$DIR/relay/requirements-vps.lock" &&
   grep -q '^websockets==' "$DIR/relay/requirements-vps.lock"
 assert_eq "$?" "0" "VPS dependency lock present"
 
+echo "3c. hardened relay can require its auth token"
+grep -q 'HERDR_RELAY_REQUIRE_TOKEN' "$DIR/relay/herdr_relay.py" &&
+  grep -q 'HERDR_RELAY_TOKEN is required' "$DIR/relay/herdr_relay.py"
+assert_eq "$?" "0" "relay fail-closed token control present"
+
 # --- Telegram ---
 echo ""
 echo "=== Telegram bot ==="
@@ -72,6 +77,11 @@ echo "7c. telegram handlers support channel posts"
 ! grep -q 'update\.message' "$DIR/relay/herdr_telegram.py" &&
   grep -q 'update\.effective_message' "$DIR/relay/herdr_telegram.py"
 assert_eq "$?" "0" "handlers use effective_message"
+
+echo "7d. hardened Telegram service can require its chat allowlist"
+grep -q 'HERDR_TG_REQUIRE_CHAT_ID' "$DIR/relay/herdr_telegram.py" &&
+  grep -q 'HERDR_TG_CHAT_ID is required' "$DIR/relay/herdr_telegram.py"
+assert_eq "$?" "0" "Telegram fail-closed chat control present"
 
 # --- TUI ---
 echo ""

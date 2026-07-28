@@ -16,6 +16,7 @@ log = logging.getLogger("herdr-tg")
 
 TOKEN = os.environ.get("HERDR_TG_TOKEN", "")
 CHAT_ID = os.environ.get("HERDR_TG_CHAT_ID", "")
+CHAT_ID_REQUIRED = os.environ.get("HERDR_TG_REQUIRE_CHAT_ID", "0").lower() in {"1", "true", "yes", "on"}
 RELAY_WS = os.environ.get("HERDR_RELAY", "ws://127.0.0.1:8375")
 RELAY_WS_SAFE = RELAY_WS.split("?", 1)[0]  # token-free variant for display and logging; never leak the token
 _RELAY_TOKEN = RELAY_WS.split("token=", 1)[1] if "token=" in RELAY_WS else ""
@@ -574,6 +575,8 @@ async def relay_listener(app: Application):
 # --- Main ---
 
 def main():
+    if CHAT_ID_REQUIRED and not CHAT_ID:
+        raise SystemExit("HERDR_TG_CHAT_ID is required by HERDR_TG_REQUIRE_CHAT_ID")
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", cmd_start))
     if CHAT_ID:

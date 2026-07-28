@@ -46,6 +46,7 @@ HERDR_SESSION = os.environ.get("HERDR_SESSION", "").strip()
 MDNS_ENABLED = os.environ.get("HERDR_MDNS", "1").lower() not in {"0", "false", "no", "off"}
 POLL_INTERVAL = 2
 AUTH_TOKEN = os.environ.get("HERDR_RELAY_TOKEN", "")  # Optional: shared secret for relay auth
+AUTH_TOKEN_REQUIRED = os.environ.get("HERDR_RELAY_REQUIRE_TOKEN", "0").lower() in {"1", "true", "yes", "on"}
 
 # VAPID Web Push
 VAPID_PUBLIC_KEY = os.environ.get("HERDR_VAPID_PUBLIC", "")
@@ -562,6 +563,8 @@ def start_mdns():
 
 
 async def main():
+    if AUTH_TOKEN_REQUIRED and not AUTH_TOKEN:
+        raise SystemExit("HERDR_RELAY_TOKEN is required by HERDR_RELAY_REQUIRE_TOKEN")
     zc, info = start_mdns()
     loop = asyncio.get_running_loop()
     try:
