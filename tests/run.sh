@@ -25,6 +25,13 @@ echo "3. start.sh executable"
 [ -x "$DIR/relay/start.sh" ]
 assert_eq "$?" "0" "start.sh +x"
 
+echo "3a. relay supports loopback bind and named sessions"
+grep -q 'HERDR_RELAY_BIND' "$DIR/relay/herdr_relay.py" &&
+  grep -q 'HERDR_SESSION' "$DIR/relay/herdr_relay.py" &&
+  grep -q 'HERDR_MDNS' "$DIR/relay/herdr_relay.py" &&
+  grep -q 'herdr_args.extend(\["--session", HERDR_SESSION\])' "$DIR/relay/herdr_relay.py"
+assert_eq "$?" "0" "relay bind/session env vars present"
+
 # --- Telegram ---
 echo ""
 echo "=== Telegram bot ==="
@@ -45,6 +52,11 @@ PASS=$((PASS+1)); echo "  pass: all 8 commands present"
 echo "7. telegram bot env vars documented"
 grep -q "HERDR_TG_TOKEN" "$DIR/relay/herdr_telegram.py" && grep -q "HERDR_TG_CHAT_ID" "$DIR/relay/herdr_telegram.py"
 assert_eq "$?" "0" "env vars referenced"
+
+echo "7a. telegram interrupt uses a relay-allowed key"
+grep -q '"keys": \["C-c"\]' "$DIR/relay/herdr_telegram.py" &&
+  ! grep -q '"keys": \["Ctrl+c"\]' "$DIR/relay/herdr_telegram.py"
+assert_eq "$?" "0" "interrupt uses C-c"
 
 # --- TUI ---
 echo ""

@@ -217,7 +217,7 @@ async def cmd_interrupt(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     import websockets
     try:
         async with websockets.connect(RELAY_WS) as ws:
-            await ws.send(json.dumps({"type": "send_keys", "pane_id": match["pane_id"], "keys": ["Ctrl+c"]}))
+            await ws.send(json.dumps({"type": "send_keys", "pane_id": match["pane_id"], "keys": ["C-c"]}))
         await update.message.reply_text(f"Sent Ctrl+C to {match['project']}")
     except Exception as e:
         await update.message.reply_text(f"Failed: {scrub(e)}")
@@ -360,7 +360,7 @@ async def handle_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         import websockets
         try:
             async with websockets.connect(RELAY_WS) as ws:
-                await ws.send(json.dumps({"type": "send_keys", "pane_id": data["pane_id"], "keys": ["Ctrl+c"]}))
+                await ws.send(json.dumps({"type": "send_keys", "pane_id": data["pane_id"], "keys": ["C-c"]}))
             await query.message.reply_text("Sent Ctrl+C")
         except Exception as e:
             await query.message.reply_text(f"Failed: {scrub(e)}")
@@ -553,7 +553,7 @@ async def relay_listener(app: Application):
                         )
         except Exception as e:
             relay_connected = False
-            log.warning(f"Relay connection lost: {e}, reconnecting in 5s...")
+            log.warning(f"Relay connection lost: {scrub(e)}, reconnecting in 5s...")
             await asyncio.sleep(5)
 
 
